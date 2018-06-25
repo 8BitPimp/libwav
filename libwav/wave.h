@@ -7,6 +7,7 @@ struct wave_info_t {
   uint32_t samples;
   uint32_t channels;
   uint32_t depth;
+  uint32_t rate;
 };
 
 struct wave_t {
@@ -29,6 +30,8 @@ struct wave_t {
   uint32_t bit_depth() const { return bit_depth_; }
 
   uint32_t sample_rate() const { return sample_rate_; }
+
+  // todo: set sample rate
 
   template <typename type_t> type_t *get() {
     return reinterpret_cast<type_t *>(samples_.get());

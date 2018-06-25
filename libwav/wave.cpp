@@ -15,10 +15,10 @@ constexpr uint32_t fourcc(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
 }
 
 enum {
-  FMT_PCM  = 1,
+  FMT_PCM = 1,
   FCC_RIFF = fourcc('R', 'I', 'F', 'F'),
   FCC_WAVE = fourcc('W', 'A', 'V', 'E'),
-  FCC_FMT  = fourcc('f', 'm', 't', ' '),
+  FCC_FMT = fourcc('f', 'm', 't', ' '),
   FCC_DATA = fourcc('d', 'a', 't', 'a'),
 };
 
@@ -127,7 +127,6 @@ bool wave_t::save(const char *path) {
   }
 
   // write riff header
-
   riff_t riff;
   riff.chunk_id_ = FCC_RIFF;
   riff.format_ = FCC_WAVE;
@@ -135,7 +134,6 @@ bool wave_t::save(const char *path) {
   file.write(riff);
 
   // write format block
-
   fmt_t fmt;
   fmt.chunk_id_ = FCC_FMT;
   fmt.chunk_size_ = sizeof(fmt) - 8;
@@ -148,15 +146,41 @@ bool wave_t::save(const char *path) {
   file.write(fmt);
 
   // write data block
-
   file.write<uint32_t>(FCC_DATA);
-  file.write<uint32_t>(sample_bytes_);  // chunk size
+  file.write<uint32_t>(sample_bytes_); // chunk size
   file.write(samples_.get(), sample_bytes_);
 
   return true;
 }
 
 bool wave_t::create(const wave_info_t &info) {
-  // TODO
-  return false;
+
+  // validate channel count
+  if (info.channels != 1 || info.channels != 2) {
+    return false;
+  }
+  channels_ = info.channels;
+
+  // validate bit depth
+  if (info.depth != 8 || info.depth != 16) {
+    return false;
+  }
+  bit_depth_ = info.depth;
+
+  // validate sample rate
+  switch (info.rate) {
+  case 44100:
+  case 22050:
+  case 11025:
+    break;
+  default:
+    return false;
+  }
+  sample_rate_ = info.rate;
+
+  // allocate space for samples
+  sample_bytes_ = info.depth / 8 * info.samples;
+  samples_ = std::make_unique<uint8_t[]>(sample_bytes_);
+
+  return true;
 }
