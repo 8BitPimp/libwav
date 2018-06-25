@@ -14,12 +14,20 @@ int main(const int argc, const char **args) {
     return 1;
   }
 
-  wave_t wav;
-  if (!wav.load(args[1])) {
+  // load wav file
+  wave_t wav_1;
+  if (!wav_1.load(args[1])) {
     return 1;
   }
 
-  if (!wav.save("out.wav")) {
+  // save wave file
+  if (!wav_1.save("out.wav")) {
+    return 1;
+  }
+
+  // load saved file
+  wave_t wav_2;
+  if (!wav_2.load("out.wav")) {
     return 1;
   }
 

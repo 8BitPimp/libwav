@@ -6,8 +6,10 @@
 // \________\____\\_______\/  \_\/\_\/\___\____\/\__\/
 //
 
+#define _CRT_SECURE_NO_WARNINGS
+#include <cstdio>
+
 #include "wave.h"
-#include "_file.h"
 
 #if !defined(_MSC_VER)
 #define PACK__ __attribute__((__packed__))
@@ -52,12 +54,34 @@ struct PACK__ fmt_t {
 #pragma pack(pop)
 #endif
 
+struct file_t {
+
+  file_t(const char *path, const char *mode) : _fd(fopen(path, mode)) {}
+
+  ~file_t() { fclose(_fd); }
+
+  FILE *operator()() const { return _fd; }
+
+  operator bool() const { return _fd != nullptr; }
+
+  template <typename type_t> bool read(type_t &out) const {
+    return fread(&out, sizeof(type_t), 1, _fd) == 1;
+  }
+
+  template <typename type_t> bool write(const type_t &out) const {
+    return fwrite(&out, sizeof(type_t), 1, _fd) == 1;
+  }
+
+protected:
+  FILE *_fd;
+};
+
 } // namespace
 
 bool wave_t::load(const char *path) {
 
-  file_reader_t file;
-  if (!file.open(path)) {
+  file_t fd{path, "rb"};
+  if (!fd) {
     return false;
   }
 
@@ -66,7 +90,7 @@ bool wave_t::load(const char *path) {
 
   // read riff header
   const auto on_riff = [&](uint32_t id, uint32_t size) {
-    if (!file.read(riff)) {
+    if (!fd.read(riff)) {
       return false;
     }
     if (riff.format_ != FCC_WAVE) {
@@ -77,7 +101,7 @@ bool wave_t::load(const char *path) {
 
   // read format chunk
   const auto on_fmt = [&](uint32_t id, uint32_t size) {
-    if (!file.read(fmt)) {
+    if (!fd.read(fmt)) {
       return false;
     }
     if (fmt.format_ != FMT_PCM) {
@@ -97,18 +121,10 @@ bool wave_t::load(const char *path) {
 
   // parse a data chunk
   const auto on_data = [&](uint32_t id, uint32_t size) {
-    // sanity check on file size
-    size_t file_size = 0;
-    if (!file.size(file_size)) {
-      return false;
-    }
-    if (size >= file_size) {
-      return false;
-    }
     // read sample data
     sample_bytes_ = size;
     samples_ = std::make_unique<uint8_t[]>(size);
-    if (!file.read(samples_.get(), size)) {
+    if (fread(samples_.get(), size, 1, fd()) != 1) {
       return false;
     }
     return true;
@@ -120,7 +136,7 @@ bool wave_t::load(const char *path) {
 
     // read chunk header
     chunk_t hdr;
-    if (!file.read(hdr)) {
+    if (!fd.read(hdr)) {
       return false;
     }
 
@@ -132,15 +148,15 @@ bool wave_t::load(const char *path) {
       }
       done |= 0x1;
       break;
-    case FCC_FMT:
-      file.push_pos();
+    case FCC_FMT: {
+      const long pos = ftell(fd());
       if (!on_fmt(hdr.chunk_id_, hdr.chunk_size_)) {
         return false;
       }
-      file.pop_pos();
-      file.jump(hdr.chunk_size_);
+      fseek(fd(), pos + hdr.chunk_size_, SEEK_SET);
       done |= 0x2;
       break;
+    }
     case FCC_DATA:
       if (!on_data(hdr.chunk_id_, hdr.chunk_size_)) {
         return false;
@@ -148,7 +164,7 @@ bool wave_t::load(const char *path) {
       done |= 0x4;
       break;
     default:
-      file.jump(hdr.chunk_size_);
+      fseek(fd(), hdr.chunk_size_, SEEK_CUR);
       break;
     }
   }
@@ -159,8 +175,8 @@ bool wave_t::load(const char *path) {
 
 bool wave_t::save(const char *path) {
 
-  file_writer_t file(path);
-  if (!file.is_open()) {
+  file_t file(path, "wb");
+  if (!file) {
     return false;
   }
 
@@ -192,7 +208,9 @@ bool wave_t::save(const char *path) {
   // write data block
   file.write<uint32_t>(FCC_DATA);
   file.write<uint32_t>(sample_bytes_); // chunk size
-  file.write(samples_.get(), sample_bytes_);
+  if (fwrite(samples_.get(), sample_bytes_, 1, file()) != 1) {
+    return false;
+  }
 
   return true;
 }
