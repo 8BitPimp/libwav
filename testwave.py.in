@@ -1,0 +1,71 @@
+#!/usr/bin/env python
+#  ____     ___ _________  __      __  _________   ____
+# |    |   |   |______   \/  \    /  \/  _  \   \ /   /\
+# |    |   |   ||    |  _/\   \/\/   /  /_\  \   Y   / /
+# |    |___|   ||    |   \ \        /    |    \     / /
+# |________|___||________/\ \__/\__/\____|____/\___/ /
+# \________\____\\_______\/  \_\/\_\/\___\____\/\__\/
+#
+
+from __future__ import print_function
+import os
+import subprocess
+from shutil import copyfile
+
+
+tool_path = os.path.join(
+    r'${CMAKE_CURRENT_BINARY_DIR}',
+    'Debug',
+    'testwave.exe')
+test_path = os.path.join(
+    r'${CMAKE_SOURCE_DIR}',
+    'assets')
+fail_path = os.path.join(
+    r'${CMAKE_SOURCE_DIR}',
+    'fails')
+tested = 0
+failed = []
+
+
+def copy_on_fail(path):
+    try:
+        name = os.path.basename(path)
+        dest = os.path.join(fail_path, name)
+        copyfile(path, dest)
+    except Exception as _:
+        pass
+
+
+def test_wave_file(midi_path):
+    global failed
+    ret = subprocess.call([tool_path, midi_path])
+    if ret != 0:
+        print('{0}'.format(midi_path))
+        failed += [midi_path]
+        copy_on_fail(midi_path)
+
+
+def print_summary():
+    global tested, failed
+    print('{0} of {1} passed'.format(tested-len(failed), tested))
+    if failed:
+        print('{0} failed!'.format(len(failed)))
+        for test in failed:
+            try:
+                print(' ! {0}'.format(test))
+            except Exception as _:
+                pass
+
+
+def main():
+    global tested
+    for root, dirs, files in os.walk(test_path):
+        for f in files:
+            if f.lower().endswith(".wav"):
+                tested += 1
+                test_wave_file(os.path.join(root, f))
+    print_summary()
+
+
+if __name__ == '__main__':
+    main()

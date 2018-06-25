@@ -6,12 +6,12 @@
 // \________\____\\_______\/  \_\/\_\/\___\____\/\__\/
 //
 
-#include "../libwav/wave.h"
+#include "../libwave/wave.h"
 
 int main(const int argc, const char **args) {
 
   if (argc < 2) {
-    return -1;
+    return 1;
   }
 
   wave_t wav;
@@ -19,7 +19,9 @@ int main(const int argc, const char **args) {
     return 1;
   }
 
-  wav.save("out.wav");
+  if (!wav.save("out.wav")) {
+    return 1;
+  }
 
   return 0;
 }

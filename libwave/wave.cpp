@@ -30,27 +30,22 @@ enum {
   FCC_DATA = fourcc('d', 'a', 't', 'a'),
 };
 
-struct PACK__ riff_t {
+struct chunk_t {
   uint32_t chunk_id_;
   uint32_t chunk_size_;
+};
+
+struct PACK__ riff_t {
   uint32_t format_;
 };
 
 struct PACK__ fmt_t {
-  uint32_t chunk_id_;
-  uint32_t chunk_size_;
   uint16_t format_;
   uint16_t channels_;
   uint32_t sample_rate_;
   uint32_t byte_rate_;
   uint16_t block_align_;
   uint16_t bit_depth_;
-};
-
-struct PACK__ data_t {
-  uint32_t chunk_id_;
-  uint32_t chunk_size_;
-  // after starts sample data
 };
 
 #if defined(_MSC_VER)
@@ -68,61 +63,96 @@ bool wave_t::load(const char *path) {
 
   riff_t riff;
   fmt_t fmt;
-  data_t data;
 
   // read riff header
-  if (!file.read(riff)) {
-    return false;
-  }
-  if (riff.chunk_id_ != FCC_RIFF) {
-    return false;
-  }
-  if (riff.format_ != FCC_WAVE) {
-    return false;
-  }
+  const auto on_riff = [&](uint32_t id, uint32_t size) {
+    if (!file.read(riff)) {
+      return false;
+    }
+    if (riff.format_ != FCC_WAVE) {
+      return false;
+    }
+    return true;
+  };
 
   // read format chunk
-  if (!file.read(fmt)) {
-    return false;
-  }
-  if (fmt.chunk_id_ != FCC_FMT) {
-    return false;
-  }
-  if (fmt.format_ != FMT_PCM) {
-    return false;
-  }
-  if (fmt.bit_depth_ & 7 /* multiple of 8 */) {
-    return false;
-  }
-  if (fmt.channels_ != 1 && fmt.channels_ != 2) {
-    return false;
+  const auto on_fmt = [&](uint32_t id, uint32_t size) {
+    if (!file.read(fmt)) {
+      return false;
+    }
+    if (fmt.format_ != FMT_PCM) {
+      return false;
+    }
+    if (fmt.bit_depth_ & 7 /* multiple of 8 */) {
+      return false;
+    }
+    if (fmt.channels_ != 1 && fmt.channels_ != 2) {
+      return false;
+    }
+    bit_depth_ = fmt.bit_depth_;
+    sample_rate_ = fmt.sample_rate_;
+    channels_ = fmt.channels_;
+    return true;
+  };
+
+  // parse a data chunk
+  const auto on_data = [&](uint32_t id, uint32_t size) {
+    // sanity check on file size
+    size_t file_size = 0;
+    if (!file.size(file_size)) {
+      return false;
+    }
+    if (size >= file_size) {
+      return false;
+    }
+    // read sample data
+    sample_bytes_ = size;
+    samples_ = std::make_unique<uint8_t[]>(size);
+    if (!file.read(samples_.get(), size)) {
+      return false;
+    }
+    return true;
+  };
+
+  // parse chunks
+  uint32_t done = 0;
+  while (done != 0x7) {
+
+    // read chunk header
+    chunk_t hdr;
+    if (!file.read(hdr)) {
+      return false;
+    }
+
+    // switch on fourcc code
+    switch (hdr.chunk_id_) {
+    case FCC_RIFF:
+      if (!on_riff(hdr.chunk_id_, hdr.chunk_size_)) {
+        return false;
+      }
+      done |= 0x1;
+      break;
+    case FCC_FMT:
+      file.push_pos();
+      if (!on_fmt(hdr.chunk_id_, hdr.chunk_size_)) {
+        return false;
+      }
+      file.pop_pos();
+      file.jump(hdr.chunk_size_);
+      done |= 0x2;
+      break;
+    case FCC_DATA:
+      if (!on_data(hdr.chunk_id_, hdr.chunk_size_)) {
+        return false;
+      }
+      done |= 0x4;
+      break;
+    default:
+      file.jump(hdr.chunk_size_);
+      break;
+    }
   }
 
-  // read data chunk
-  if (!file.read(data)) {
-    return false;
-  }
-  if (data.chunk_id_ != FCC_DATA) {
-    return false;
-  }
-  // sanity check on file size
-  size_t file_size = 0;
-  if (!file.size(file_size)) {
-    return false;
-  }
-  if (data.chunk_size_ >= file_size) {
-    return false;
-  }
-  // read sample data
-  sample_bytes_ = data.chunk_size_;
-  samples_ = std::make_unique<uint8_t[]>(data.chunk_size_);
-  if (!file.read(samples_.get(), data.chunk_size_)) {
-    return false;
-  }
-  // copy into output structure
-  bit_depth_ = fmt.bit_depth_;
-  sample_rate_ = fmt.sample_rate_;
-  channels_ = fmt.channels_;
   // success
   return true;
 }
@@ -135,16 +165,22 @@ bool wave_t::save(const char *path) {
   }
 
   // write riff header
+  chunk_t riff_hdr;
+  riff_hdr.chunk_id_ = FCC_RIFF;
+  riff_hdr.chunk_size_ = 20 + sizeof(fmt_t) + sample_bytes_;
+  file.write(riff_hdr);
+
   riff_t riff;
-  riff.chunk_id_ = FCC_RIFF;
   riff.format_ = FCC_WAVE;
-  riff.chunk_size_ = 4 + sizeof(fmt_t) + 8 + sample_bytes_;
   file.write(riff);
 
   // write format block
+  chunk_t fmt_hdr;
+  fmt_hdr.chunk_id_ = FCC_FMT;
+  fmt_hdr.chunk_size_ = sizeof(fmt_t);
+  file.write(fmt_hdr);
+
   fmt_t fmt;
-  fmt.chunk_id_ = FCC_FMT;
-  fmt.chunk_size_ = sizeof(fmt) - 8;
   fmt.format_ = FMT_PCM;
   fmt.bit_depth_ = bit_depth_;
   fmt.sample_rate_ = sample_rate_;
